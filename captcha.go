@@ -40,7 +40,7 @@ type Endpoint string
 
 // Google reCAPTCHA endpoint for both v2 (checkbox and invisible) and v3, see
 // https://developers.google.com/recaptcha/docs/verify
-const GoogleRecaptcha Endpoint = "https://www.google.com/recaptcha/api/siteverify"
+const GoogleRecaptcha Endpoint = "https://www.recaptcha.net/recaptcha/api/siteverify"
 
 // CloudflareTurnstile endpoint, see
 // https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
