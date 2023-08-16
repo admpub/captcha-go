@@ -1,3 +1,3 @@
-module github.com/JOT85/captcha-go
+module github.com/admpub/captcha-go
 
 go 1.19
