@@ -32,6 +32,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -67,15 +69,25 @@ type CaptchaVerifier struct {
 	HttpClient      *http.Client
 	captchaEndpoint Endpoint
 	captchaSecret   string
+	disablePostJSON *bool
 }
 
 // NewCaptchaVerifier creates a new `CaptchaVerifier` with `http.DefaultClient`.
 func NewCaptchaVerifier(captchaEndpoint Endpoint, captchaSecret string) *CaptchaVerifier {
-	return &CaptchaVerifier{
+	c := &CaptchaVerifier{
 		HttpClient:      http.DefaultClient,
 		captchaEndpoint: captchaEndpoint,
 		captchaSecret:   captchaSecret,
 	}
+	if captchaEndpoint != CloudflareTurnstile {
+		c.DisablePostJSON(true)
+	}
+	return c
+}
+
+func (client *CaptchaVerifier) DisablePostJSON(on bool) *CaptchaVerifier {
+	client.disablePostJSON = &on
+	return client
 }
 
 // VerifyRequest is the data sent in a request to the API endpoint.
@@ -88,6 +100,13 @@ type VerifyRequest struct {
 
 	// RemoteIP is, optionally, the clients IP address
 	RemoteIP string `json:"remoteip"`
+
+	disablePostJSON *bool
+}
+
+func (req *VerifyRequest) DisablePostJSON(on bool) *VerifyRequest {
+	req.disablePostJSON = &on
+	return req
 }
 
 // Verify sends this request to an `endpoint` and returns the `VerifyResponse`.
@@ -98,17 +117,33 @@ func (req *VerifyRequest) Verify(
 	client *http.Client,
 	endpoint Endpoint,
 ) (resp *VerifyResponse, err error) {
-	// Format request
-	jsonReq, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to format verify request: %w", err)
+	var httpResp *http.Response
+	if req.disablePostJSON != nil && *req.disablePostJSON {
+		data := url.Values{
+			`secret`:   []string{req.Secret},
+			`response`: []string{req.Response},
+			`remoteip`: []string{req.RemoteIP},
+		}
+
+		httpResp, err = client.Post(
+			string(endpoint),
+			"application/x-www-form-urlencoded", strings.NewReader(data.Encode()),
+		)
+	} else {
+		// Format request
+		var jsonReq []byte
+		jsonReq, err = json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to format verify request: %w", err)
+		}
+
+		// Make the POST request
+		httpResp, err = client.Post(
+			string(endpoint),
+			"application/json", bytes.NewReader(jsonReq),
+		)
 	}
 
-	// Make the POST request
-	httpResp, err := client.Post(
-		string(endpoint),
-		"application/json", bytes.NewReader(jsonReq),
-	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform POST to captcha verify endpoint: %w", err)
 	}
@@ -187,11 +222,15 @@ func (client *CaptchaVerifier) Verify(
 	clientResponse,
 	remoteIP string,
 ) (resp *VerifyResponse, err error) {
-	return (&VerifyRequest{
+	req := &VerifyRequest{
 		Secret:   client.captchaSecret,
 		Response: clientResponse,
 		RemoteIP: remoteIP,
-	}).Verify(client.HttpClient, client.captchaEndpoint)
+	}
+	if client.disablePostJSON != nil {
+		req.DisablePostJSON(*client.disablePostJSON)
+	}
+	return req.Verify(client.HttpClient, client.captchaEndpoint)
 }
 
 // SimpleCaptchaVerifier wraps a `CaptchaVerifier` with some expected response values. The `Verify`
